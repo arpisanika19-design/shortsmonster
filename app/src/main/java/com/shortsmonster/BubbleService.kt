@@ -79,12 +79,16 @@ class BubbleService : AccessibilityService() {
     private fun refresh() {
         val n = Store.count(this)
         badge.text = n.toString()
+        monster.text = Store.emoji(n)
         monster.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 22f + min(n, 150) * 0.35f) // starts tiny, grows with each short
         if (shown) wm.updateViewLayout(root, lp)
     }
 
     private fun bump() {
         val n = Store.inc(this); refresh()
+        monster.animate().scaleX(1.35f).scaleY(1.35f).setDuration(120).withEndAction {
+            monster.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+        }.start()
         if (n % 20 == 0) Toast.makeText(this, lines[(n / 20 - 1) % lines.size], Toast.LENGTH_LONG).show()
     }
 
@@ -121,23 +125,26 @@ class BubbleService : AccessibilityService() {
 
     private var lastCheck = 0L
 
-    // Returns a fingerprint of the short on screen, or null when the Shorts player is not showing.
+    private var onShorts = false
+    private var misses = 0
+
+    // Fingerprint of everything readable on the visible screen (digits ignored, so like counts do not matter).
+    // Returns null when the Shorts player is not showing.
     private fun shortSignature(): String? {
         val r = rootInActiveWindow ?: return null
-        val sb = StringBuilder(); val found = booleanArrayOf(false)
-        walk(r, 0, sb, found)
-        return if (found[0]) sb.toString() else null
+        val set = java.util.TreeSet<String>(); val found = booleanArrayOf(false)
+        walk(r, 0, set, found)
+        if (found[0]) { onShorts = true; misses = 0 } else if (onShorts && ++misses >= 3) { onShorts = false; misses = 0 }
+        return if (onShorts) set.joinToString("|") else null
     }
-    private fun walk(n: AccessibilityNodeInfo, depth: Int, sb: StringBuilder, found: BooleanArray) {
+    private fun walk(n: AccessibilityNodeInfo, depth: Int, out: MutableSet<String>, found: BooleanArray) {
+        if (!n.isVisibleToUser) return
         val id = n.viewIdResourceName ?: ""
-        val isReel = id.contains("reel", true) || id.contains("shorts", true)
-        if (isReel) {
-            found[0] = true
-            val t = (n.text?.toString() ?: n.contentDescription?.toString() ?: "")
-            if (t.length > 2 && !t.matches(Regex("[\\d.,KMBkmb ]+"))) sb.append(t.take(60)).append('|')
-        }
-        if (depth > 12) return
-        for (i in 0 until n.childCount) { val c = n.getChild(i) ?: continue; walk(c, depth + 1, sb, found) }
+        if (id.contains("reel", true) || id.contains("shorts", true)) found[0] = true
+        val t = (n.text?.toString() ?: n.contentDescription?.toString() ?: "")
+        if (t.length > 2 && t.none { it.isDigit() } && out.size < 40) out.add(t.take(50))
+        if (depth > 14) return
+        for (i in 0 until n.childCount) { val c = n.getChild(i) ?: continue; walk(c, depth + 1, out, found) }
     }
 
     override fun onInterrupt() {}
