@@ -91,28 +91,53 @@ class BubbleService : AccessibilityService() {
     private fun show() { if (!shown) { refresh(); wm.addView(root, lp); shown = true } else refresh() }
     private fun hide() { if (shown) { wm.removeView(root); shown = false } }
 
+    private var lastSig = ""
+
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         val pkg = e.packageName?.toString() ?: return
         if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             if (pkg == YT) show()
-            else if (pkg != packageName && !pkg.contains("systemui") && !pkg.contains("inputmethod") && !pkg.contains("honeyboard")) hide()
+            else if (pkg != packageName && !pkg.contains("systemui") && !pkg.contains("inputmethod") && !pkg.contains("honeyboard")) { hide(); lastSig = "" }
         }
         val mode = Store.mode(this)
-        if (mode > 0 && pkg == YT && e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && onShortsScreen()) {
-            val now = System.currentTimeMillis()
-            if (now - lastSwipe < 700) return            // ignore duplicate scroll events from one swipe
-            lastSwipe = now
-            if (mode == 1) bump()                         // Level 1: every swipe counts
-            else { if (lastShortStart == 0L || now - lastShortStart >= 3000) bump(); lastShortStart = now } // Level 2: only shorts you stayed on 3s+
-        }
+        if (mode == 0 || pkg != YT) return
+        if (e.eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED &&
+            e.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
+        val now = System.currentTimeMillis()
+        if (now - lastCheck < 250) return                 // do not scan the screen too often
+        lastCheck = now
+        val sig = shortSignature() ?: run { lastSig = ""; return }   // null = not on Shorts
+        val swiped = e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+        val changed = lastSig.isNotEmpty() && sig != lastSig
+        if (lastSig.isEmpty()) { lastSig = sig; lastShortStart = now; return }  // just entered Shorts
+        if (!(changed || swiped)) return
+        if (now - lastSwipe < 1200) { if (changed) lastSig = sig; return }      // same swipe seen by both signals
+        lastSwipe = now
+        lastSig = sig
+        if (mode == 1) bump()                                                      // Level 1: every new short
+        else { if (now - lastShortStart >= 3000) bump(); }                         // Level 2: stayed 3s+
+        lastShortStart = now
     }
 
-    private fun onShortsScreen(): Boolean = rootInActiveWindow?.let { find(it, 0) } ?: false
-    private fun find(n: AccessibilityNodeInfo, depth: Int): Boolean {
-        if (n.viewIdResourceName?.contains("reel", true) == true) return true
-        if (depth > 9) return false
-        for (i in 0 until n.childCount) { val c = n.getChild(i) ?: continue; if (find(c, depth + 1)) return true }
-        return false
+    private var lastCheck = 0L
+
+    // Returns a fingerprint of the short on screen, or null when the Shorts player is not showing.
+    private fun shortSignature(): String? {
+        val r = rootInActiveWindow ?: return null
+        val sb = StringBuilder(); val found = booleanArrayOf(false)
+        walk(r, 0, sb, found)
+        return if (found[0]) sb.toString() else null
+    }
+    private fun walk(n: AccessibilityNodeInfo, depth: Int, sb: StringBuilder, found: BooleanArray) {
+        val id = n.viewIdResourceName ?: ""
+        val isReel = id.contains("reel", true) || id.contains("shorts", true)
+        if (isReel) {
+            found[0] = true
+            val t = (n.text?.toString() ?: n.contentDescription?.toString() ?: "")
+            if (t.length > 2 && !t.matches(Regex("[\\d.,KMBkmb ]+"))) sb.append(t.take(60)).append('|')
+        }
+        if (depth > 12) return
+        for (i in 0 until n.childCount) { val c = n.getChild(i) ?: continue; walk(c, depth + 1, sb, found) }
     }
 
     override fun onInterrupt() {}
