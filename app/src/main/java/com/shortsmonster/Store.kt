@@ -24,8 +24,6 @@ object Store {
     fun x(c: Context, def: Int) = p(c).getInt("x", def)
     fun y(c: Context) = p(c).getInt("y", 140)
     fun setPos(c: Context, x: Int, y: Int) = p(c).edit().putInt("x", x).putInt("y", y).apply()
-    fun emoji(n: Int) = when { n < 20 -> "🐣"; n < 60 -> "👾"; n < 120 -> "🦖"; else -> "🐉" }
-    fun stage(n: Int) = when { n < 20 -> "Baby blob"; n < 60 -> "Snack monster"; n < 120 -> "Chonky beast"; else -> "Doom dragon" }
      fun emoji(n: Int) = when { n < 20 -> "🐣"; n < 60 -> "👾"; n < 120 -> "🦖"; else -> "🐉" }
     fun stage(n: Int) = when { n < 20 -> "Baby blob"; n < 60 -> "Snack monster"; n < 120 -> "Chonky beast"; else -> "Doom dragon" }
      fun fmt(sec: Long): String { val h = sec / 3600; val m = (sec % 3600) / 60; return if (h > 0) "${h}h ${m}m" else "${m}m ${sec % 60}s" }
